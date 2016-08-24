@@ -1,7 +1,10 @@
 # create a video from a stack of images
 #
-# assume that input_template will result in a list of filenames that have
-# a common prefix and suffix, and are differentiated by increasing numbering
+# Takes a list of input files, with the last argument being the output.
+# Assumes that input files have a common prefix and suffix, and that
+# in between, the only differences are numbers. Files are sorted by
+# this number.
+#
 #
 
 
@@ -13,12 +16,23 @@ import subprocess
 import sys
 import tempfile
 
+# the encoder to use. they seem to basically be equivalent
+encoder = 'ffmpeg'
+#encoder = 'avconv'
+
+# files are copied to a temporary location in parallel
 default_num_procs = 8
+
+# how fast the video plays
 default_framerate = 50
-encoder = 'avconv'
+
+# crf mean Constant Rate Factor, and denotes the video quality. values for
+# crf range from 0 to 53 (0 being highest quality). sane values are from 18
+# to 28. the normal default is 23.
+default_crf = 15
 
 def create_video(filenames, output, framerate=default_framerate, 
-                 num_procs=default_num_procs):
+                 num_procs=default_num_procs, crf=default_crf):
 
     if len(filenames) == 0:
         print "Error! No filenames given"
@@ -33,7 +47,7 @@ def create_video(filenames, output, framerate=default_framerate,
     print 'prefix:', prefix
 
     # find the longest common suffix among filenames.
-    # we do this be reversing each string, finding the prefix, and
+    # we do this by reversing each string, finding the prefix, and
     # reversing the prefix to get the final suffix.
     filenames_reverse = [x[::-1] for x in base_filenames]
     suffix = os.path.commonprefix(filenames_reverse)
@@ -72,17 +86,28 @@ def create_video(filenames, output, framerate=default_framerate,
     pool.close()
     pool.join()
     print 'done copying images...'
+    print ''
 
     # create video
     template = prefix + '%' + 'd' + suffix
     template = os.path.join(temp_dir, template)
-    cmd = [encoder, '-r', str(framerate), 
+
+    # Note: the -pix_fmt yuv420p is used so that it plays on older video
+    # players. if left out, it defaults to another pixel format that cannot be
+    # played on macs at the moment. libx264 is also specified to ensure that
+    # H.264 is used, for highest compatibility
+    cmd = [encoder,
+           '-r', str(framerate), 
            '-f', 'image2', 
            '-i', template, 
-           '-qscale', '1', output]
+           '-pix_fmt', 'yuv420p', 
+           '-c:v', 'libx264', 
+           '-crf', str(crf),
+           output]
     print '-'*70
     print ' '.join(cmd)
     print '-'*70
+    print ''
     subprocess.call(cmd)
     print ''
 
@@ -101,13 +126,19 @@ if __name__ == '__main__':
     parser.add_argument('output', help='output video filename (*.mp4)')
     parser.add_argument('--framerate', '-r', type=int, 
                         default=default_framerate, 
-                        metavar='N', help='framerate')
+                        metavar='N',
+                        help='framerate, default=%i' % default_framerate)
     parser.add_argument('-np', type=int, 
                         default=default_num_procs, 
-                        metavar='N', help='number of procs')
+                        metavar='N',
+                        help='number of procs (for parallel copying), default=%i' % default_num_procs)
+    parser.add_argument('-crf', type=int, 
+                        default=default_crf, 
+                        metavar='N',
+                        help='video quality, default=%i' % default_crf)
 
     args = parser.parse_args()
 
-    create_video(args.input, args.output, args.framerate, args.np)
+    create_video(args.input, args.output, args.framerate, args.np, args.crf)
 
 
